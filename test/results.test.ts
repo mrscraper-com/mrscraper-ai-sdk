@@ -30,6 +30,18 @@ describe("toPageResult", () => {
     expect(result.error).toBe('{"message":"Target timed out"}');
     expect(result.html).toBeUndefined();
   });
+
+  it("treats the raw HTML string an HTML-only request returns as the html format", () => {
+    const result = toPageResult("https://shop.test/item", ["html"], {
+      status_code: 200,
+      data: "<!doctype html><title>Item</title>",
+    });
+    expect(result).toEqual({
+      url: "https://shop.test/item",
+      statusCode: 200,
+      html: "<!doctype html><title>Item</title>",
+    });
+  });
 });
 
 describe("toSearchResult", () => {

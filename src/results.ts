@@ -57,14 +57,24 @@ function number(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-/** Keeps the requested formats the API returned, plus usage and errors. */
+/**
+ * Keeps the requested formats the API returned, plus usage and errors.
+ *
+ * When only HTML is requested, the API proxies the page and answers with the
+ * raw HTML string instead of a JSON object; that string is the html format.
+ */
 export function toPageResult(
   url: string,
   formats: readonly PageFormat[],
   response: ApiResponse,
 ): PageResult {
-  const data = record(response.data);
   const result: PageResult = { url, statusCode: response.status_code };
+  if (typeof response.data === "string") {
+    const html = text(response.data);
+    if (html !== undefined && formats.includes("html")) result.html = html;
+    return result;
+  }
+  const data = record(response.data);
   for (const format of formats) {
     const content = text(data[format]);
     if (content !== undefined) result[format] = content;
