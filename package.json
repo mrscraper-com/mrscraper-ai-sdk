@@ -1,0 +1,60 @@
+{
+  "name": "@mrscraper/ai-sdk",
+  "version": "0.1.0",
+  "description": "MrScraper tools for the Vercel AI SDK: retrieve public web pages as Markdown, HTML, or screenshots, search Google, and check account usage.",
+  "license": "MIT",
+  "author": "MrScraper <support@mrscraper.com> (https://mrscraper.com)",
+  "homepage": "https://docs.mrscraper.com/docs/integrations/vercel-ai-sdk",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrscraper-com/mrscraper-ai-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mrscraper-com/mrscraper-ai-sdk/issues"
+  },
+  "keywords": [
+    "ai",
+    "ai-sdk",
+    "vercel",
+    "tools",
+    "web-scraping",
+    "google-search",
+    "mrscraper"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@mrscraper/sdk": "^3.1.0"
+  },
+  "peerDependencies": {
+    "ai": "^7.0.0",
+    "zod": "^3.25.76 || ^4.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ai": "^7.0.148",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0",
+    "zod": "^4.1.8"
+  }
+}
