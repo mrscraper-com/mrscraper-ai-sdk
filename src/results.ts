@@ -19,7 +19,7 @@ export interface PageResult {
   error?: string;
 }
 
-/** One organic Google result. */
+/** One organic search result. */
 export interface SearchResultItem {
   rank?: number;
   title?: string;
@@ -34,7 +34,7 @@ export interface SearchResult {
   results: SearchResultItem[];
   /** "People also ask" entries as the API returns them; omitted when empty. */
   peopleAlsoAsk?: unknown[];
-  /** Next result page number, or null when Google reports no further page. */
+  /** Next result page number, or null when the search reports no further page. */
   nextPage: number | null;
 }
 
@@ -88,7 +88,7 @@ export function toPageResult(
   return result;
 }
 
-/** Reduces the parsed Google response to what a model needs to choose pages. */
+/** Reduces the parsed search response to what a model needs to choose pages. */
 export function toSearchResult(query: string, response: ApiResponse): SearchResult {
   const body = record(record(response.data).data);
   const organic = Array.isArray(body.organic) ? body.organic : [];

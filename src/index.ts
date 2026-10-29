@@ -108,18 +108,18 @@ export function scraperApiTool(options: MrScraperToolOptions = {}): Tool<Scraper
   });
 }
 
-/** Searches Google through MrScraper and returns parsed organic results. */
+/** Searches the web through MrScraper and returns parsed organic results. */
 export function webSearchTool(options: MrScraperToolOptions = {}): Tool<WebSearchInput, SearchResult> {
   return tool({
     description:
-      "Search Google through MrScraper and get parsed organic results (rank, title, link, description, source). " +
+      "Search the web through MrScraper and get parsed organic results (rank, title, link, description, source). " +
       "Use it to discover pages when no URL is known, then retrieve chosen pages with the scraperAPI tool. " +
       "Each call uses MrScraper plan tokens.",
     inputSchema: z.object({
       query: z
         .string()
         .min(1)
-        .describe("Search terms, or a complete Google search URL."),
+        .describe("Search terms, or a complete search results URL."),
       region: z
         .string()
         .length(2)
