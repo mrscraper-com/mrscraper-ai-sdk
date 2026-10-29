@@ -1,7 +1,7 @@
 {
   "name": "@mrscraper/ai-sdk",
-  "version": "0.1.0",
-  "description": "MrScraper tools for the Vercel AI SDK: retrieve public web pages as Markdown, HTML, or screenshots, search Google, and check account usage.",
+  "version": "0.1.1",
+  "description": "MrScraper tools for the Vercel AI SDK: retrieve public web pages as Markdown, HTML, or screenshots, search the web, and check account usage.",
   "license": "MIT",
   "author": "MrScraper <support@mrscraper.com> (https://mrscraper.com)",
   "homepage": "https://docs.mrscraper.com/docs/integrations/vercel-ai-sdk",
@@ -18,7 +18,7 @@
     "vercel",
     "tools",
     "web-scraping",
-    "google-search",
+    "web-search",
     "mrscraper"
   ],
   "type": "module",
