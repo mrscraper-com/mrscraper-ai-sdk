@@ -45,19 +45,17 @@ describe("toPageResult", () => {
 });
 
 describe("toSearchResult", () => {
-  it("keeps result order and drops icons and display links", () => {
-    const result = toSearchResult("timeouts", {
+  it("keeps result order and maps url to link", () => {
+    const result = toSearchResult("python requests timeout", {
       status_code: 200,
       data: {
-        data: {
-          general: { query: "python requests timeout" },
-          organic: [
-            { rank: 1, title: "A", link: "https://a.test", description: "first", source: "A", icon: "data:image/png;base64,AAAA", display_link: "a.test" },
-            { rank: 2, title: "B", link: "https://b.test" },
-          ],
-          people_also_ask: [],
-          pagination: { next_page: 2 },
-        },
+        success: true,
+        message: "Search completed",
+        data: [
+          { rank: 1, title: "A", url: "https://a.test", description: "first", source: "A" },
+          { rank: 2, title: "B", url: "https://b.test" },
+        ],
+        tokenUsage: 1,
       },
     });
     expect(result).toEqual({
@@ -66,13 +64,12 @@ describe("toSearchResult", () => {
         { rank: 1, title: "A", link: "https://a.test", description: "first", source: "A" },
         { rank: 2, title: "B", link: "https://b.test", description: undefined, source: undefined },
       ],
-      nextPage: 2,
     });
   });
 
-  it("falls back to the input query and reports no next page when the response has neither", () => {
-    const result = toSearchResult("no results here", { status_code: 200, data: { data: {} } });
-    expect(result).toEqual({ query: "no results here", results: [], nextPage: null });
+  it("returns no results when the response has none", () => {
+    const result = toSearchResult("no results here", { status_code: 200, data: { success: true, data: [] } });
+    expect(result).toEqual({ query: "no results here", results: [] });
   });
 });
 
