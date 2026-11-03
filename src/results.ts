@@ -19,7 +19,7 @@ export interface PageResult {
   error?: string;
 }
 
-/** One organic search result. */
+/** One web search result. */
 export interface SearchResultItem {
   rank?: number;
   title?: string;
@@ -32,10 +32,6 @@ export interface SearchResultItem {
 export interface SearchResult {
   query: string;
   results: SearchResultItem[];
-  /** "People also ask" entries as the API returns them; omitted when empty. */
-  peopleAlsoAsk?: unknown[];
-  /** Next result page number, or null when the search reports no further page. */
-  nextPage: number | null;
 }
 
 interface ApiResponse {
@@ -88,26 +84,21 @@ export function toPageResult(
   return result;
 }
 
-/** Reduces the parsed search response to what a model needs to choose pages. */
+/** Reduces the search response to what a model needs to choose pages. */
 export function toSearchResult(query: string, response: ApiResponse): SearchResult {
-  const body = record(record(response.data).data);
-  const organic = Array.isArray(body.organic) ? body.organic : [];
-  const peopleAlsoAsk = Array.isArray(body.people_also_ask) ? body.people_also_ask : [];
-  const nextPage = number(record(body.pagination).next_page);
+  const items = record(response.data).data;
   return {
-    query: text(record(body.general).query) ?? query,
-    results: organic.map((entry) => {
+    query,
+    results: (Array.isArray(items) ? items : []).map((entry) => {
       const item = record(entry);
       return {
         rank: number(item.rank),
         title: text(item.title),
-        link: text(item.link),
+        link: text(item.url),
         description: text(item.description),
         source: text(item.source),
       };
     }),
-    ...(peopleAlsoAsk.length > 0 ? { peopleAlsoAsk } : {}),
-    nextPage: nextPage ?? null,
   };
 }
 

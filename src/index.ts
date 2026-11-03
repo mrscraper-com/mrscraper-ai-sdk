@@ -1,4 +1,4 @@
-import { account, scraper_api, web_search, type AccountSummary } from "@mrscraper/sdk";
+import { account, scraper_api, type AccountSummary } from "@mrscraper/sdk";
 import { tool, type Tool } from "ai";
 import { z } from "zod/v4";
 
@@ -10,6 +10,7 @@ import {
   type PageResult,
   type SearchResult,
 } from "./results.js";
+import { searchQuery, webSearch } from "./search.js";
 
 export type { AccountSummary } from "@mrscraper/sdk";
 export type {
@@ -33,8 +34,7 @@ export interface ScraperApiInput {
 export interface WebSearchInput {
   query: string;
   region?: string;
-  language?: string;
-  page?: number;
+  numResults?: number;
 }
 
 export interface MrScraperToolOptions {
@@ -108,41 +108,35 @@ export function scraperApiTool(options: MrScraperToolOptions = {}): Tool<Scraper
   });
 }
 
-/** Searches the web through MrScraper and returns parsed organic results. */
+/** Searches the web through MrScraper and returns ranked results. */
 export function webSearchTool(options: MrScraperToolOptions = {}): Tool<WebSearchInput, SearchResult> {
   return tool({
     description:
-      "Search the web through MrScraper and get parsed organic results (rank, title, link, description, source). " +
+      "Search the web through MrScraper and get ranked results (rank, title, link, description, source). " +
       "Use it to discover pages when no URL is known, then retrieve chosen pages with the scraperAPI tool. " +
       "Each call uses MrScraper plan tokens.",
     inputSchema: z.object({
       query: z
         .string()
         .min(1)
-        .describe("Search terms, or a complete search results URL."),
+        .describe("Search terms, or a search results URL whose q parameter is used."),
       region: z
         .string()
         .length(2)
         .optional()
-        .describe("Two-letter country code for the results, such as us, gb, or id."),
-      language: z
-        .string()
-        .min(2)
-        .max(5)
+        .describe("Two-letter country code for the results, such as us, gb, or id. Defaults to us."),
+      numResults: z
+        .number()
+        .int()
+        .min(10)
+        .max(100)
         .optional()
-        .describe("Language code for the results, such as en or id."),
-      page: z.number().int().min(1).optional().describe("One-based result page."),
+        .describe("Number of results, from 10 to 100. Defaults to 10; fewer may come back."),
     }),
-    async execute({ query, region, language, page }) {
-      const response = await web_search(query, {
-        token: apiKey(options),
-        raw: false,
-        format: "json",
-        region: region ?? null,
-        language: language ?? null,
-        page: page ?? null,
-      });
-      return toSearchResult(query, response);
+    async execute({ query, region, numResults }) {
+      const searched = searchQuery(query);
+      const response = await webSearch(apiKey(options), { query: searched, country: region, numResults });
+      return toSearchResult(searched, response);
     },
   });
 }

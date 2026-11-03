@@ -47,7 +47,7 @@ const tools = {
 | Tool | Factory | What it does |
 | --- | --- | --- |
 | `scraperAPI` | `scraperApiTool()` | Retrieves a known public page as Markdown (default), HTML, a screenshot, or a combination. Renders JavaScript-heavy pages in a browser when needed. Inputs: `url`, `formats`, `browserRendering`, `waitForSelector`, `geoCode`, `timeout`. |
-| `webSearch` | `webSearchTool()` | Searches the web and returns parsed organic results (`rank`, `title`, `link`, `description`, `source`), "People also ask" entries, and the next page number. Inputs: `query` (text or a search results URL), `region`, `language`, `page`. |
+| `webSearch` | `webSearchTool()` | Searches the web and returns ranked results (`rank`, `title`, `link`, `description`, `source`). Inputs: `query` (text or a search results URL), `region` (two-letter country, default `us`), `numResults` (10 to 100, default 10). |
 | `status` | `accountStatusTool()` | Returns the subscription status, token limit, tokens used, and tokens remaining. Uses no tokens. |
 
 `scraperAPI` sends screenshots to the model as image parts instead of base64
