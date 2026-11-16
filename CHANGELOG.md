@@ -3,6 +3,15 @@
 All notable changes to `@mrscraper/ai-sdk` are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## 0.2.1 - 2026-11-16
+
+- `scraperAPI` now loads pages with `GET`. It uses `@mrscraper/sdk` 5, whose
+  `scraper_api` puts the page URL and retry options in the query string and
+  sends no body. 0.2.0 used `@mrscraper/sdk` 3.1, which sent a POST with a
+  JSON body. The Scraper API passes a request body on to the target site, so
+  sites received a POST, and many refused it.
+- Tool names, inputs, and outputs are unchanged.
+
 ## 0.2.0 - 2026-11-02
 
 - `webSearch` now calls MrScraper's new web search endpoint (the `websearch`
