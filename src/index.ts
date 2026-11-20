@@ -1,171 +1,165 @@
-import { account, scraper_api, type AccountSummary } from "@mrscraper/sdk";
+import {
+  MrScraperError,
+  getScreenshot,
+  scrapeBrand,
+  scrapeHtml,
+  scrapeJson,
+  scrapeMarkdown,
+  status,
+  webSearch,
+  type MrScraperResponse,
+  type PageData,
+  type WebSearchResponse,
+} from "@mrscraper/sdk";
 import { tool, type Tool } from "ai";
-import { z } from "zod/v4";
 
 import {
-  toPageModelOutput,
-  toPageResult,
-  toSearchResult,
-  type PageFormat,
-  type PageResult,
-  type SearchResult,
-} from "./results.js";
-import { searchQuery, webSearch } from "./search.js";
+  getScreenshotInput,
+  scrapeBrandInput,
+  scrapeHtmlInput,
+  scrapeJsonInput,
+  scrapeMarkdownInput,
+  statusInput,
+  webSearchInput,
+  type GetScreenshotInput,
+  type ScrapeBrandInput,
+  type ScrapeHtmlInput,
+  type ScrapeJsonInput,
+  type ScrapeMarkdownInput,
+  type StatusInput,
+  type WebSearchInput,
+} from "./inputs.js";
+import { screenshotModelOutput } from "./model-output.js";
 
-export type { AccountSummary } from "@mrscraper/sdk";
+export type { MrScraperResponse, PageData, WebSearchResponse, WebSearchResult } from "@mrscraper/sdk";
 export type {
-  PageFormat,
-  PageResult,
-  SearchResult,
-  SearchResultItem,
-} from "./results.js";
-
-/** Input of the scraperAPI tool after validation. */
-export interface ScraperApiInput {
-  url: string;
-  formats: PageFormat[];
-  browserRendering?: boolean;
-  waitForSelector?: string;
-  geoCode?: string;
-  timeout?: number;
-}
-
-/** Input of the webSearch tool after validation. */
-export interface WebSearchInput {
-  query: string;
-  region?: string;
-  numResults?: number;
-}
+  GetScreenshotInput,
+  ScrapeBrandInput,
+  ScrapeHtmlInput,
+  ScrapeJsonInput,
+  ScrapeMarkdownInput,
+  StatusInput,
+  WebSearchInput,
+} from "./inputs.js";
 
 export interface MrScraperToolOptions {
   /**
-   * MrScraper API key from https://app.mrscraper.com/api-tokens. Defaults to
-   * the MRSCRAPER_API_KEY environment variable, then MRSCRAPER_API_TOKEN.
+   * API key used to authenticate the request. Defaults to the
+   * MRSCRAPER_API_KEY environment variable, then MRSCRAPER_API_TOKEN. Get one
+   * at https://app.mrscraper.com/api-tokens.
    */
   apiKey?: string;
 }
 
-function apiKey(options: MrScraperToolOptions): string | undefined {
-  return options.apiKey ?? process.env.MRSCRAPER_API_KEY ?? undefined;
+function apiKey(options: MrScraperToolOptions): string {
+  const key = options.apiKey || process.env.MRSCRAPER_API_KEY || process.env.MRSCRAPER_API_TOKEN || "";
+  if (!key.trim()) {
+    throw new MrScraperError(
+      "API key is not set. Pass apiKey or set MRSCRAPER_API_KEY. Get your key at https://app.mrscraper.com/api-tokens.",
+    );
+  }
+  return key;
 }
 
-const formatSchema = z.enum(["markdown", "html", "screenshot"]);
+/** Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields. */
+export function statusTool(options: MrScraperToolOptions = {}): Tool<StatusInput, MrScraperResponse> {
+  return tool({
+    description:
+      "Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.",
+    inputSchema: statusInput,
+    execute: async () => status({ token: apiKey(options) }),
+  });
+}
+
+/** Retrieve the raw HTML of a page. Browser rendering is optional. */
+export function scrapeHtmlTool(options: MrScraperToolOptions = {}): Tool<ScrapeHtmlInput, MrScraperResponse<PageData>> {
+  return tool({
+    description: "Retrieve the raw HTML of a page. Browser rendering is optional.",
+    inputSchema: scrapeHtmlInput,
+    execute: async ({ url, ...input }) => scrapeHtml(url, { ...input, token: apiKey(options) }),
+  });
+}
+
+/** Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON. */
+export function scrapeMarkdownTool(
+  options: MrScraperToolOptions = {},
+): Tool<ScrapeMarkdownInput, MrScraperResponse<PageData>> {
+  return tool({
+    description:
+      "Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.",
+    inputSchema: scrapeMarkdownInput,
+    execute: async ({ url, ...input }) => scrapeMarkdown(url, { ...input, token: apiKey(options) }),
+  });
+}
 
 /**
- * Retrieves a known public page as Markdown, HTML, a screenshot, or a
- * combination through MrScraper's Scraper API.
+ * Capture a base64 screenshot of the full page or top viewport. Browser
+ * rendering is always enabled. The model receives the screenshot as an image.
  */
-export function scraperApiTool(options: MrScraperToolOptions = {}): Tool<ScraperApiInput, PageResult> {
-  return tool({
-    description:
-      "Retrieve a known public web page through MrScraper as Markdown, HTML, a screenshot, or a combination. " +
-      "Use Markdown for reading and summarizing; add html when exact markup or attributes matter. " +
-      "MrScraper renders JavaScript-heavy pages in a browser when needed. Each call uses MrScraper plan tokens.",
-    inputSchema: z.object({
-      url: z.url({ protocol: /^https?$/ }).describe("Absolute http or https URL of the page."),
-      formats: z
-        .array(formatSchema)
-        .min(1)
-        .default(["markdown"])
-        .describe("Representations to return. Defaults to markdown."),
-      browserRendering: z
-        .boolean()
-        .optional()
-        .describe("true forces a real browser, false disables it; omit for automatic fallback."),
-      waitForSelector: z
-        .string()
-        .min(1)
-        .optional()
-        .describe("CSS selector to wait for before the page is captured."),
-      geoCode: z
-        .string()
-        .length(2)
-        .optional()
-        .describe("Two-letter country code for the request location, such as US or GB."),
-      timeout: z
-        .number()
-        .int()
-        .min(1)
-        .max(300)
-        .optional()
-        .describe("Page timeout in seconds, 1 to 300. Defaults to 120."),
-    }),
-    async execute({ url, formats, browserRendering, waitForSelector, geoCode, timeout }) {
-      const requested = new Set<PageFormat>(formats);
-      const response = await scraper_api(url, {
-        token: apiKey(options),
-        markdown: requested.has("markdown"),
-        html: requested.has("html"),
-        screenshot: requested.has("screenshot"),
-        browser_rendering: browserRendering ?? null,
-        wait_for_selector: waitForSelector ?? null,
-        ...(geoCode === undefined ? {} : { geo_code: geoCode.toUpperCase() }),
-        ...(timeout === undefined ? {} : { timeout }),
-      });
-      return toPageResult(url, [...requested], response);
-    },
-    toModelOutput: ({ output }) => toPageModelOutput(output),
-  });
-}
-
-/** Searches the web through MrScraper and returns ranked results. */
-export function webSearchTool(options: MrScraperToolOptions = {}): Tool<WebSearchInput, SearchResult> {
-  return tool({
-    description:
-      "Search the web through MrScraper and get ranked results (rank, title, link, description, source). " +
-      "Use it to discover pages when no URL is known, then retrieve chosen pages with the scraperAPI tool. " +
-      "Each call uses MrScraper plan tokens.",
-    inputSchema: z.object({
-      query: z
-        .string()
-        .min(1)
-        .describe("Search terms, or a search results URL whose q parameter is used."),
-      region: z
-        .string()
-        .length(2)
-        .optional()
-        .describe("Two-letter country code for the results, such as us, gb, or id. Defaults to us."),
-      numResults: z
-        .number()
-        .int()
-        .min(10)
-        .max(100)
-        .optional()
-        .describe("Number of results, from 10 to 100. Defaults to 10; fewer may come back."),
-    }),
-    async execute({ query, region, numResults }) {
-      const searched = searchQuery(query);
-      const response = await webSearch(apiKey(options), { query: searched, country: region, numResults });
-      return toSearchResult(searched, response);
-    },
-  });
-}
-
-/** Reports the MrScraper plan, token usage, and remaining tokens. */
-export function accountStatusTool(
+export function getScreenshotTool(
   options: MrScraperToolOptions = {},
-): Tool<Record<string, never>, AccountSummary> {
+): Tool<GetScreenshotInput, MrScraperResponse<PageData>> {
   return tool({
     description:
-      "Show the connected MrScraper account's subscription status, token limit, tokens used, and tokens remaining. " +
-      "Uses no tokens.",
-    inputSchema: z.object({}),
-    async execute() {
-      const response = await account({ token: apiKey(options) });
-      return response.data;
-    },
+      "Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.",
+    inputSchema: getScreenshotInput,
+    execute: async ({ url, ...input }) => getScreenshot(url, { ...input, token: apiKey(options) }),
+    toModelOutput: screenshotModelOutput,
   });
 }
 
-/** All MrScraper tools, keyed by the names the MrScraper MCP server uses. */
+/** Extract a website's colors, typography, logos, and social links as JSON. */
+export function scrapeBrandTool(options: MrScraperToolOptions = {}): Tool<ScrapeBrandInput, MrScraperResponse> {
+  return tool({
+    description: "Extract a website's colors, typography, logos, and social links as JSON.",
+    inputSchema: scrapeBrandInput,
+    execute: async ({ url }) => scrapeBrand(url, { token: apiKey(options) }),
+  });
+}
+
+/**
+ * Extract structured JSON from a page using a natural-language prompt. Append
+ * Json Schema: and a JSON schema to shape the output. A requested screenshot
+ * reaches the model as an image.
+ */
+export function scrapeJsonTool(options: MrScraperToolOptions = {}): Tool<ScrapeJsonInput, MrScraperResponse> {
+  return tool({
+    description:
+      "Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.",
+    inputSchema: scrapeJsonInput,
+    execute: async ({ url, ...input }) => scrapeJson(url, { ...input, token: apiKey(options) }),
+    toModelOutput: screenshotModelOutput,
+  });
+}
+
+/** Search the web and return ranked results with titles, URLs, descriptions, and sources. */
+export function webSearchTool(
+  options: MrScraperToolOptions = {},
+): Tool<WebSearchInput, MrScraperResponse<WebSearchResponse>> {
+  return tool({
+    description: "Search the web and return ranked results with titles, URLs, descriptions, and sources.",
+    inputSchema: webSearchInput,
+    execute: async ({ query, ...input }) => webSearch(query, { ...input, token: apiKey(options) }),
+  });
+}
+
+/** All seven MrScraper tools, keyed by the names the Node SDK and MCP server use. */
 export function mrscraperTools(options: MrScraperToolOptions = {}): {
-  scraperAPI: Tool<ScraperApiInput, PageResult>;
-  webSearch: Tool<WebSearchInput, SearchResult>;
-  status: Tool<Record<string, never>, AccountSummary>;
+  status: Tool<StatusInput, MrScraperResponse>;
+  scrapeHtml: Tool<ScrapeHtmlInput, MrScraperResponse<PageData>>;
+  scrapeMarkdown: Tool<ScrapeMarkdownInput, MrScraperResponse<PageData>>;
+  getScreenshot: Tool<GetScreenshotInput, MrScraperResponse<PageData>>;
+  scrapeBrand: Tool<ScrapeBrandInput, MrScraperResponse>;
+  scrapeJson: Tool<ScrapeJsonInput, MrScraperResponse>;
+  webSearch: Tool<WebSearchInput, MrScraperResponse<WebSearchResponse>>;
 } {
   return {
-    scraperAPI: scraperApiTool(options),
+    status: statusTool(options),
+    scrapeHtml: scrapeHtmlTool(options),
+    scrapeMarkdown: scrapeMarkdownTool(options),
+    getScreenshot: getScreenshotTool(options),
+    scrapeBrand: scrapeBrandTool(options),
+    scrapeJson: scrapeJsonTool(options),
     webSearch: webSearchTool(options),
-    status: accountStatusTool(options),
   };
 }
