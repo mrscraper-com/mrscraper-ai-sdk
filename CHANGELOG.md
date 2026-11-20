@@ -3,6 +3,36 @@
 All notable changes to `@mrscraper/ai-sdk` are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## 0.3.0 - 2026-11-20
+
+- The tools follow the MrScraper Integrations Standard, which MrScraper MCP
+  server 0.5.0 also uses. `mrscraperTools()` returns seven tools under the
+  Node SDK and MCP names: `status`, `scrapeHtml`, `scrapeMarkdown`,
+  `getScreenshot`, `scrapeBrand`, `scrapeJson`, and `webSearch`. Tool
+  descriptions and input names, defaults, and descriptions are the standard
+  ones. Inputs a tool does not define are rejected.
+- Built on `@mrscraper/sdk` 6 (was 5). Every tool sends a `GET`; `scrapeJson`
+  switches to `POST` when the encoded URL exceeds 8,000 characters.
+- `scraperAPI` (`scraperApiTool()`) is removed. Use `scrapeHtml`,
+  `scrapeMarkdown`, or `getScreenshot`. Browser rendering is off unless
+  `browserRendering` is true (screenshots always render), and the page
+  timeout defaults to 300 seconds (was 120).
+- New tools: `scrapeBrand` (`scrapeBrandTool()`) and `scrapeJson`
+  (`scrapeJsonTool()`).
+- `webSearch` takes `query`, `country`, and `numResults`. `region` is removed,
+  and a search results URL is no longer read for its `q` parameter. The tool
+  calls the SDK's `webSearch` instead of posting to the endpoint itself.
+- `status` (`statusTool()`, was `accountStatusTool()`) returns the raw account
+  status API response instead of a usage summary.
+- Every tool returns the SDK's response envelope, `{ status_code, data,
+  headers }`, with the API response body in `data`. The `PageResult`,
+  `PageFormat`, `SearchResult`, `SearchResultItem`, `ScraperApiInput`, and
+  `AccountSummary` types are removed. Each tool has an input type, such as
+  `ScrapeHtmlInput`, and `MrScraperResponse`, `PageData`, `WebSearchResponse`,
+  and `WebSearchResult` are re-exported from the SDK.
+- Screenshots from `getScreenshot`, and from `scrapeJson` when requested,
+  still reach the model as image parts.
+
 ## 0.2.1 - 2026-11-16
 
 - `scraperAPI` now loads pages with `GET`. It uses `@mrscraper/sdk` 5, whose
