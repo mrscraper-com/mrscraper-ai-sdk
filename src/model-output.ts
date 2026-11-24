@@ -1,5 +1,6 @@
-import type { MrScraperResponse } from "@mrscraper/sdk";
 import type { JSONValue, ToolResultPart } from "ai";
+
+import type { MrScraperResponse } from "./api.js";
 
 /**
  * Sends a base64 screenshot to the model as an image part instead of a string
