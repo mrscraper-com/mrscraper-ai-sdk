@@ -1,8 +1,8 @@
-import { MrScraperError } from "@mrscraper/sdk";
 import { asSchema, type Tool } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import {
+  MrScraperError,
   getScreenshotTool,
   scrapeBrandTool,
   scrapeHtmlTool,
@@ -13,29 +13,33 @@ import {
 } from "../src/index.js";
 
 const KEY = "atk_testtesttesttest";
-// Standard placeholder values.
+// Placeholder values from MrScraper's integration examples.
 const PAGE_URL = "https://www.scrapethissite.com";
 const BRAND_URL = "https://mrscraper.com";
 const JSON_URL = "https://mrscraper.com/pricing";
 const SCRAPER_API = "https://api.mrscraper.com/";
+const STATUS_API = "https://api.app.mrscraper.com/api/v1/subscription-accounts";
 
-const pageDefaults = {
-  timeout: "300",
-  geoCode: "us",
+/** Inputs of earlier versions that no tool accepts any more. */
+const REMOVED_INPUTS: Record<string, unknown> = {
+  super: true,
+  proxy: "http://proxy.example:8080",
   proxyCountry: "us",
-  super: "false",
-  waitUntil: "domcontentloaded",
-  saveResult: "false",
+  waitUntil: "load",
+  returnCookie: true,
+  tokenCap: 100,
+  record: true,
+  action: "scrape",
+  saveResult: false,
 };
-const loadingDefaults = { blockResources: "false", returnCookie: "false" };
 
 beforeEach(() => {
-  for (const name of ["MRSCRAPER_API_KEY", "MRSCRAPER_API_TOKEN", "MRSCRAPER_API_BASE_URL", "MRSCRAPER_FETCH_BASE_URL"]) {
-    vi.stubEnv(name, "");
-  }
+  vi.stubEnv("MRSCRAPER_API_KEY", "");
+  vi.stubEnv("MRSCRAPER_API_TOKEN", "");
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -48,14 +52,16 @@ function stubFetch(response: () => Response): FetchMock {
   return fetchMock;
 }
 
+/** The single request the tool sent, with the query string as ordered pairs. */
 function sent(fetchMock: FetchMock) {
   expect(fetchMock).toHaveBeenCalledTimes(1);
   const [url, init] = fetchMock.mock.calls[0]!;
   const parsed = new URL(url);
   return {
     method: init.method,
+    url,
     endpoint: `${parsed.origin}${parsed.pathname}`,
-    query: Object.fromEntries(parsed.searchParams),
+    query: [...parsed.searchParams],
     headers: new Headers(init.headers),
     body: init.body,
   };
@@ -77,14 +83,22 @@ async function run<INPUT, OUTPUT>(tool: Tool<INPUT, OUTPUT>, input: unknown): Pr
   return output as OUTPUT;
 }
 
+async function rejectsRemovedInputs(tool: Tool, input: Record<string, unknown>): Promise<void> {
+  for (const [name, value] of Object.entries(REMOVED_INPUTS)) {
+    expect(await accepts(tool, { ...input, [name]: value }), name).toBe(false);
+  }
+}
+
 describe("statusTool", () => {
   it("gets the raw account status and drops credential headers", async () => {
     const body = { message: "Example response", data: { id: "ACCOUNT_ID", tokenLimit: 100000, tokenUsage: 2500 } };
-    const fetchMock = stubFetch(() => Response.json(body, { headers: { "x-api-token": KEY } }));
+    const fetchMock = stubFetch(() =>
+      Response.json(body, { headers: { "x-api-token": KEY, "x-discard-token-secret": "secret" } }),
+    );
     const result = await run(statusTool({ apiKey: KEY }), {});
     const request = sent(fetchMock);
     expect(request.method).toBe("GET");
-    expect(request.endpoint).toBe("https://api.app.mrscraper.com/api/v1/subscription-accounts");
+    expect(request.url).toBe(STATUS_API);
     expect(request.body).toBeUndefined();
     expect(request.headers.get("x-api-token")).toBe(KEY);
     expect(request.headers.get("authorization")).toBe(`Bearer ${KEY}`);
@@ -97,7 +111,7 @@ describe("statusTool", () => {
 });
 
 describe("scrapeHtmlTool", () => {
-  it("sends a GET with the standard defaults and html forced on", async () => {
+  it("sends the url, maxAge=0, and the fixed values when the model sets nothing else", async () => {
     const html = "<html><body>Example page content...</body></html>";
     const fetchMock = stubFetch(
       () => new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } }),
@@ -105,135 +119,225 @@ describe("scrapeHtmlTool", () => {
     const result = await run(scrapeHtmlTool({ apiKey: KEY }), { url: PAGE_URL });
     const request = sent(fetchMock);
     expect(request.method).toBe("GET");
+    expect(request.url).toBe(
+      `${SCRAPER_API}?url=https%3A%2F%2Fwww.scrapethissite.com&maxAge=0&html=true&markdown=false&saveResult=true`,
+    );
     expect(request.body).toBeUndefined();
-    expect(request.endpoint).toBe(SCRAPER_API);
-    expect(request.query).toEqual({
-      url: PAGE_URL,
-      ...pageDefaults,
-      ...loadingDefaults,
-      browserRendering: "false",
-      warmStart: "false",
-      html: "true",
-      markdown: "false",
-      screenshot: "false",
-    });
+    expect(request.headers.get("x-api-token")).toBe(KEY);
+    expect(request.headers.get("content-type")).toBeNull();
     expect(result).toEqual({ status_code: 200, data: html, headers: { "content-type": "text/html; charset=utf-8" } });
   });
 
-  it("passes optional controls and lowercases country codes", async () => {
-    const fetchMock = stubFetch(() => new Response("<html></html>", { headers: { "content-type": "text/html" } }));
+  it("sends every input the model sets, in order, with the country code in lowercase", async () => {
+    const fetchMock = stubFetch(() => Response.json({ html: "<html></html>", screenshot: "iVBORw0KGgo=" }));
     await run(scrapeHtmlTool({ apiKey: KEY }), {
       url: PAGE_URL,
-      browserRendering: true,
+      browserRendering: false,
+      timeout: 330,
       warmStart: true,
-      waitForSelector: "body",
-      timeout: 120,
-      maxRetries: 0,
+      blockResources: true,
+      waitForSelector: "#results",
       geoCode: "GB",
-      proxyCountry: "DE",
-      proxy: "http://proxy.example:8080",
+      maxAge: 86400000,
+      maxRetries: 0,
+      screenshot: "1920x1080-75",
     });
-    expect(sent(fetchMock).query).toMatchObject({
-      browserRendering: "true",
-      warmStart: "true",
-      waitForSelector: "body",
-      timeout: "120",
-      maxRetries: "0",
-      geoCode: "gb",
-      proxyCountry: "de",
-      proxy: "http://proxy.example:8080",
-    });
+    expect(sent(fetchMock).query).toEqual([
+      ["url", PAGE_URL],
+      ["browserRendering", "false"],
+      ["timeout", "330"],
+      ["warmStart", "true"],
+      ["blockResources", "true"],
+      ["waitForSelector", "#results"],
+      ["geoCode", "gb"],
+      ["maxAge", "86400000"],
+      ["maxRetries", "0"],
+      ["screenshot", "1920x1080-75"],
+      ["html", "true"],
+      ["markdown", "false"],
+      ["saveResult", "true"],
+    ]);
   });
 
-  it("rejects disabled and invalid inputs before any request", async () => {
+  it("accepts the screenshot forms and range limits", async () => {
+    const tool = scrapeHtmlTool();
+    for (const screenshot of ["full", "top", "1280x800", "100x100-25", "3840x3840-300"]) {
+      expect(await accepts(tool, { url: PAGE_URL, screenshot }), screenshot).toBe(true);
+    }
+    for (const screenshot of ["", "viewport", "FULL", "99x800", "1280x3841", "12800x800", "1280x800-24", "1280x800-301"]) {
+      expect(await accepts(tool, { url: PAGE_URL, screenshot }), screenshot).toBe(false);
+    }
+    expect(await accepts(tool, { url: PAGE_URL, timeout: 1, maxAge: 604800000, waitForSelector: "x".repeat(500) })).toBe(
+      true,
+    );
+  });
+
+  it("rejects removed and invalid inputs before any request", async () => {
     const fetchMock = stubFetch(() => new Response(""));
     const tool = scrapeHtmlTool({ apiKey: KEY });
-    expect(await accepts(tool, { url: PAGE_URL, tokenCap: 100 })).toBe(false);
-    expect(await accepts(tool, { url: PAGE_URL, record: true })).toBe(false);
-    expect(await accepts(tool, { url: "ftp://example.com" })).toBe(false);
-    expect(await accepts(tool, { url: PAGE_URL, timeout: 301 })).toBe(false);
-    expect(await accepts(tool, { url: PAGE_URL, geoCode: "usa" })).toBe(false);
+    await rejectsRemovedInputs(tool, { url: PAGE_URL });
+    for (const input of [
+      { url: "ftp://example.com" },
+      { url: "www.scrapethissite.com" },
+      { url: PAGE_URL, html: false },
+      { url: PAGE_URL, markdown: true },
+      { url: PAGE_URL, timeout: 0 },
+      { url: PAGE_URL, timeout: 331 },
+      { url: PAGE_URL, geoCode: "usa" },
+      { url: PAGE_URL, maxAge: -1 },
+      { url: PAGE_URL, maxAge: 604800001 },
+      { url: PAGE_URL, maxRetries: -1 },
+      { url: PAGE_URL, waitForSelector: "  " },
+      { url: PAGE_URL, waitForSelector: "x".repeat(501) },
+    ]) {
+      expect(await accepts(tool, input), JSON.stringify(input)).toBe(false);
+    }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends a requested screenshot to the model as an image part", async () => {
+    stubFetch(() => Response.json({ html: "<html></html>", screenshot: "iVBORw0KGgo=" }));
+    const tool = scrapeHtmlTool({ apiKey: KEY });
+    const input = await parse(tool, { url: PAGE_URL, screenshot: "top" });
+    const output = await run(tool, { url: PAGE_URL, screenshot: "top" });
+    const modelOutput = await tool.toModelOutput!({ toolCallId: "call-1", input, output });
+    expect(modelOutput.type === "content" && modelOutput.value).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({
+          status_code: 200,
+          data: { html: "<html></html>" },
+          headers: { "content-type": "application/json" },
+        }),
+      },
+      { type: "file", mediaType: "image", data: { type: "data", data: "iVBORw0KGgo=" } },
+    ]);
   });
 });
 
 describe("scrapeMarkdownTool", () => {
-  it("forces markdown on and leaves html and browser rendering off by default", async () => {
+  it("sends the url, maxAge=0, and the fixed values when the model sets nothing else", async () => {
     const fetchMock = stubFetch(
       () => new Response("# Example page", { headers: { "content-type": "text/markdown; charset=utf-8" } }),
     );
     const result = await run(scrapeMarkdownTool({ apiKey: KEY }), { url: PAGE_URL });
     const request = sent(fetchMock);
     expect(request.method).toBe("GET");
-    expect(request.query).toEqual({
-      url: PAGE_URL,
-      ...pageDefaults,
-      ...loadingDefaults,
-      browserRendering: "false",
-      warmStart: "false",
-      html: "false",
-      markdown: "true",
-      screenshot: "false",
-    });
+    expect(request.url).toBe(
+      `${SCRAPER_API}?url=https%3A%2F%2Fwww.scrapethissite.com&maxAge=0&markdown=true&html=false&screenshot=false&saveResult=true`,
+    );
     expect(result.data).toBe("# Example page");
   });
 
-  it("enables browser rendering when html is included", async () => {
-    const data = { html: "<html>...</html>", markdown: "# Example page" };
-    const fetchMock = stubFetch(() => Response.json(data));
-    const result = await run(scrapeMarkdownTool({ apiKey: KEY }), { url: PAGE_URL, html: true });
-    expect(sent(fetchMock).query).toMatchObject({ html: "true", markdown: "true", browserRendering: "true" });
-    expect(result.data).toEqual(data);
+  it("sends every input the model sets, in order", async () => {
+    const fetchMock = stubFetch(() => new Response("# Example page", { headers: { "content-type": "text/markdown" } }));
+    await run(scrapeMarkdownTool({ apiKey: KEY }), {
+      url: PAGE_URL,
+      browserRendering: true,
+      timeout: 120,
+      geoCode: "ID",
+      warmStart: false,
+      blockResources: false,
+      waitForSelector: "main",
+      maxAge: 3600000,
+      maxRetries: 2,
+    });
+    expect(sent(fetchMock).query).toEqual([
+      ["url", PAGE_URL],
+      ["browserRendering", "true"],
+      ["timeout", "120"],
+      ["geoCode", "id"],
+      ["warmStart", "false"],
+      ["blockResources", "false"],
+      ["waitForSelector", "main"],
+      ["maxAge", "3600000"],
+      ["maxRetries", "2"],
+      ["markdown", "true"],
+      ["html", "false"],
+      ["screenshot", "false"],
+      ["saveResult", "true"],
+    ]);
+  });
+
+  it("rejects removed inputs and the fixed output fields", async () => {
+    const tool = scrapeMarkdownTool();
+    await rejectsRemovedInputs(tool, { url: PAGE_URL });
+    for (const field of [{ html: true }, { markdown: false }, { screenshot: "full" }]) {
+      expect(await accepts(tool, { url: PAGE_URL, ...field }), JSON.stringify(field)).toBe(false);
+    }
   });
 });
 
 describe("getScreenshotTool", () => {
-  it("always renders and captures the full page with html by default", async () => {
-    const fetchMock = stubFetch(() => Response.json({ html: "<html></html>", screenshot: "iVBORw0KGgo=" }));
+  it("captures the full page with browser rendering by default", async () => {
+    const fetchMock = stubFetch(() => Response.json({ screenshot: "iVBORw0KGgo=" }));
     await run(getScreenshotTool({ apiKey: KEY }), { url: PAGE_URL });
     const request = sent(fetchMock);
     expect(request.method).toBe("GET");
-    expect(request.query).toEqual({
+    expect(request.url).toBe(
+      `${SCRAPER_API}?url=https%3A%2F%2Fwww.scrapethissite.com&screenshot=full&maxAge=0&browserRendering=true&html=false&markdown=false&saveResult=true`,
+    );
+  });
+
+  it("sends every input the model sets, in order", async () => {
+    const fetchMock = stubFetch(() => Response.json({ screenshot: "iVBORw0KGgo=" }));
+    await run(getScreenshotTool({ apiKey: KEY }), {
       url: PAGE_URL,
-      ...pageDefaults,
-      ...loadingDefaults,
-      browserRendering: "true",
-      screenshot: "full",
-      html: "true",
-      markdown: "false",
+      screenshot: "1280x800",
+      timeout: 60,
+      geoCode: "us",
+      waitForSelector: ".chart",
+      maxAge: 0,
+      maxRetries: 1,
     });
+    expect(sent(fetchMock).query).toEqual([
+      ["url", PAGE_URL],
+      ["screenshot", "1280x800"],
+      ["timeout", "60"],
+      ["geoCode", "us"],
+      ["waitForSelector", ".chart"],
+      ["maxAge", "0"],
+      ["maxRetries", "1"],
+      ["browserRendering", "true"],
+      ["html", "false"],
+      ["markdown", "false"],
+      ["saveResult", "true"],
+    ]);
   });
 
-  it("passes the screenshot area and page outputs", async () => {
-    const fetchMock = stubFetch(() => Response.json({ screenshot: "iVBORw0KGgo=", markdown: "# Example page" }));
-    await run(getScreenshotTool({ apiKey: KEY }), { url: PAGE_URL, screenshot: "top", html: false, markdown: true });
-    expect(sent(fetchMock).query).toMatchObject({ screenshot: "top", html: "false", markdown: "true" });
-  });
-
-  it("does not accept browserRendering, which is always on", async () => {
-    expect(await accepts(getScreenshotTool(), { url: PAGE_URL, browserRendering: false })).toBe(false);
-    expect(await accepts(getScreenshotTool(), { url: PAGE_URL, screenshot: "viewport" })).toBe(false);
+  it("rejects removed inputs and inputs the screenshot service does not take", async () => {
+    const tool = getScreenshotTool();
+    await rejectsRemovedInputs(tool, { url: PAGE_URL });
+    for (const field of [
+      { browserRendering: false },
+      { html: true },
+      { markdown: true },
+      { blockResources: true },
+      { warmStart: true },
+      { screenshot: "viewport" },
+    ]) {
+      expect(await accepts(tool, { url: PAGE_URL, ...field }), JSON.stringify(field)).toBe(false);
+    }
   });
 
   it("sends the screenshot to the model as an image part and keeps it in the result", async () => {
-    stubFetch(() => Response.json({ html: "<html></html>", screenshot: "iVBORw0KGgo=" }));
+    stubFetch(() => Response.json({ screenshot: "iVBORw0KGgo=" }));
     const tool = getScreenshotTool({ apiKey: KEY });
     const input = await parse(tool, { url: PAGE_URL });
     const output = await run(tool, { url: PAGE_URL });
-    expect(output.data).toEqual({ html: "<html></html>", screenshot: "iVBORw0KGgo=" });
+    expect(output.data).toEqual({ screenshot: "iVBORw0KGgo=" });
     const modelOutput = await tool.toModelOutput!({ toolCallId: "call-1", input, output });
-    expect(modelOutput.type).toBe("content");
-    const [text, image] = modelOutput.type === "content" ? modelOutput.value : [];
-    expect(image).toEqual({ type: "file", mediaType: "image", data: { type: "data", data: "iVBORw0KGgo=" } });
-    expect(text?.type === "text" && JSON.parse(text.text)).toEqual({
-      status_code: 200,
-      data: { html: "<html></html>" },
-      headers: { "content-type": "application/json" },
-    });
+    expect(modelOutput.type === "content" && modelOutput.value).toEqual([
+      {
+        type: "text",
+        text: JSON.stringify({ status_code: 200, data: {}, headers: { "content-type": "application/json" } }),
+      },
+      { type: "file", mediaType: "image", data: { type: "data", data: "iVBORw0KGgo=" } },
+    ]);
   });
 
   it("sends a result without a screenshot as JSON", async () => {
-    stubFetch(() => Response.json({ html: "<html></html>" }));
+    stubFetch(() => Response.json({ message: "No screenshot" }));
     const tool = getScreenshotTool({ apiKey: KEY });
     const input = await parse(tool, { url: PAGE_URL });
     const output = await run(tool, { url: PAGE_URL });
@@ -248,52 +352,88 @@ describe("scrapeBrandTool", () => {
     const result = await run(scrapeBrandTool({ apiKey: KEY }), { url: BRAND_URL });
     const request = sent(fetchMock);
     expect(request.method).toBe("GET");
-    expect(request.endpoint).toBe(SCRAPER_API);
-    expect(request.query).toEqual({ action: "brand-scraping", url: BRAND_URL, bundle: "none" });
+    expect(request.url).toBe(`${SCRAPER_API}?action=brand-scraping&url=https%3A%2F%2Fmrscraper.com&bundle=none`);
     expect(result.data).toEqual(body);
   });
 
-  it("does not accept page controls", async () => {
-    expect(await accepts(scrapeBrandTool(), { url: BRAND_URL, timeout: 60 })).toBe(false);
-    expect(await accepts(scrapeBrandTool(), { url: BRAND_URL, bundle: "full" })).toBe(false);
+  it("takes only the url", async () => {
+    const tool = scrapeBrandTool();
+    for (const field of [{ timeout: 60 }, { geoCode: "us" }, { warmStart: true }, { maxAge: 0 }, { bundle: "full" }]) {
+      expect(await accepts(tool, { url: BRAND_URL, ...field }), JSON.stringify(field)).toBe(false);
+    }
   });
 });
 
 describe("scrapeJsonTool", () => {
-  it("uses the general agent and the default prompt", async () => {
-    const fetchMock = stubFetch(() => Response.json({ success: true, data: [], screenshot: "" }));
+  it("sends the url, the output defaults, maxAge=0, and the fixed values when the model sets nothing else", async () => {
+    const fetchMock = stubFetch(() => Response.json({ success: true, data: [], html: "<html></html>" }));
     await run(scrapeJsonTool({ apiKey: KEY }), { url: JSON_URL });
     const request = sent(fetchMock);
     expect(request.method).toBe("GET");
     expect(request.body).toBeUndefined();
-    expect(request.query).toEqual({
-      url: JSON_URL,
-      ...pageDefaults,
-      browserRendering: "false",
-      html: "false",
-      screenshot: "false",
-      agent: "general",
-      prompt: "Extract all data as complete as possible.",
-    });
+    expect(request.url).toBe(
+      `${SCRAPER_API}?url=https%3A%2F%2Fmrscraper.com%2Fpricing&html=true&screenshot=false&maxAge=0&saveResult=true&agent=general`,
+    );
   });
 
-  it("passes the prompt and switches to POST above an 8,000-character URL", async () => {
-    const prompt = `Extract all data as complete as possible ${"x".repeat(9000)}`;
+  it("sends every input the model sets, in order", async () => {
     const fetchMock = stubFetch(() => Response.json({ success: true, data: [] }));
-    await run(scrapeJsonTool({ apiKey: KEY }), { url: JSON_URL, prompt, browserRendering: true });
-    const request = sent(fetchMock);
-    expect(request.method).toBe("POST");
-    expect(request.query).not.toHaveProperty("url");
-    expect(request.query).not.toHaveProperty("prompt");
-    expect(request.query).toMatchObject({ browserRendering: "true" });
-    expect(JSON.parse(String(request.body))).toEqual({ url: JSON_URL, prompt, agent: "general" });
+    await run(scrapeJsonTool({ apiKey: KEY }), {
+      url: JSON_URL,
+      prompt: "Extract each plan with name and price.",
+      html: false,
+      screenshot: true,
+      browserRendering: true,
+      waitForSelector: "#pricing",
+      warmStart: true,
+      blockResources: true,
+      timeout: 200,
+      geoCode: "SG",
+      maxAge: 1000,
+      maxRetries: 3,
+    });
+    expect(sent(fetchMock).query).toEqual([
+      ["url", JSON_URL],
+      ["prompt", "Extract each plan with name and price."],
+      ["html", "false"],
+      ["screenshot", "true"],
+      ["browserRendering", "true"],
+      ["waitForSelector", "#pricing"],
+      ["warmStart", "true"],
+      ["blockResources", "true"],
+      ["timeout", "200"],
+      ["geoCode", "sg"],
+      ["maxAge", "1000"],
+      ["maxRetries", "3"],
+      ["saveResult", "true"],
+      ["agent", "general"],
+    ]);
   });
 
-  it("does not accept loading controls", async () => {
-    for (const control of [{ waitForSelector: "body" }, { blockResources: true }, { returnCookie: true }]) {
-      expect(await accepts(scrapeJsonTool(), { url: JSON_URL, ...control })).toBe(false);
+  it("switches to POST when the GET URL would exceed 8,000 characters", async () => {
+    const fixed = `${SCRAPER_API}?url=https%3A%2F%2Fmrscraper.com%2Fpricing&prompt=&html=true&screenshot=false&maxAge=0&saveResult=true&agent=general`;
+    const longest = "x".repeat(8000 - fixed.length);
+    const fetchMock = stubFetch(() => Response.json({ success: true, data: [] }));
+    const tool = scrapeJsonTool({ apiKey: KEY });
+    await run(tool, { url: JSON_URL, prompt: longest });
+    await run(tool, { url: JSON_URL, prompt: `${longest}x` });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [getUrl, getInit] = fetchMock.mock.calls[0]!;
+    const [postUrl, postInit] = fetchMock.mock.calls[1]!;
+    expect(getInit.method).toBe("GET");
+    expect(getUrl.length).toBe(8000);
+    expect(postInit.method).toBe("POST");
+    expect(postUrl).toBe(`${SCRAPER_API}?html=true&screenshot=false&maxAge=0&saveResult=true`);
+    expect(JSON.parse(String(postInit.body))).toEqual({ url: JSON_URL, prompt: `${longest}x`, agent: "general" });
+    expect(new Headers(postInit.headers).get("content-type")).toBe("application/json");
+  });
+
+  it("rejects removed inputs, fixed values, and a blank prompt", async () => {
+    const tool = scrapeJsonTool();
+    await rejectsRemovedInputs(tool, { url: JSON_URL });
+    for (const field of [{ agent: "general" }, { markdown: true }, { prompt: "" }, { prompt: "   " }, { screenshot: "full" }]) {
+      expect(await accepts(tool, { url: JSON_URL, ...field }), JSON.stringify(field)).toBe(false);
     }
-    expect(await accepts(scrapeJsonTool(), { url: JSON_URL, prompt: "   " })).toBe(false);
   });
 
   it("sends a requested screenshot to the model as an image part", async () => {
@@ -311,7 +451,7 @@ describe("scrapeJsonTool", () => {
 });
 
 describe("webSearchTool", () => {
-  it("sends a GET with the websearch action, a trimmed query, and the default country and count", async () => {
+  it("sends the websearch action and the trimmed query when the model sets nothing else", async () => {
     const body = {
       success: true,
       message: "Example response",
@@ -319,30 +459,74 @@ describe("webSearchTool", () => {
       tokenUsage: 1,
     };
     const fetchMock = stubFetch(() => Response.json(body));
-    const result = await run(webSearchTool({ apiKey: KEY }), { query: "  mrscraper  " });
+    const result = await run(webSearchTool({ apiKey: KEY }), { query: "  mrscraper pricing  " });
     const request = sent(fetchMock);
     expect(request.method).toBe("GET");
     expect(request.body).toBeUndefined();
-    expect(request.endpoint).toBe(SCRAPER_API);
-    expect(request.query).toEqual({ action: "websearch", query: "mrscraper", country: "us", numResults: "10" });
+    expect(request.url).toBe(`${SCRAPER_API}?action=websearch&query=mrscraper+pricing`);
     expect(result).toEqual({ status_code: 200, data: body, headers: { "content-type": "application/json" } });
   });
 
-  it("lowercases the country and passes the result count", async () => {
+  it("sends the country in lowercase and the result count", async () => {
     const fetchMock = stubFetch(() => Response.json({ success: true, data: [] }));
     await run(webSearchTool({ apiKey: KEY }), { query: "mrscraper", country: "ID", numResults: 20 });
-    expect(sent(fetchMock).query).toMatchObject({ country: "id", numResults: "20" });
+    expect(sent(fetchMock).query).toEqual([
+      ["action", "websearch"],
+      ["query", "mrscraper"],
+      ["country", "id"],
+      ["numResults", "20"],
+    ]);
   });
 
-  it("rejects removed and out-of-range inputs", async () => {
+  it("rejects earlier and out-of-range inputs", async () => {
     const tool = webSearchTool();
     expect(await accepts(tool, { query: "mrscraper", region: "us" })).toBe(false);
     expect(await accepts(tool, { query: "mrscraper", num_results: 10 })).toBe(false);
-    expect(await accepts(tool, { query: "mrscraper", numResults: 5 })).toBe(false);
+    expect(await accepts(tool, { query: "mrscraper", numResults: 9 })).toBe(false);
     expect(await accepts(tool, { query: "mrscraper", numResults: 101 })).toBe(false);
+    expect(await accepts(tool, { query: "mrscraper", country: "usa" })).toBe(false);
     expect(await accepts(tool, { query: "   " })).toBe(false);
     expect(await accepts(tool, { query: "x".repeat(1001) })).toBe(false);
-    expect(await accepts(tool, { query: "x".repeat(1000) })).toBe(true);
+    expect(await accepts(tool, { query: "x".repeat(1000), numResults: 10 })).toBe(true);
+    expect(await accepts(tool, { query: "mrscraper", numResults: 100 })).toBe(true);
+  });
+});
+
+describe("HTTP deadlines", () => {
+  it.each([
+    { name: "status", tool: statusTool({ apiKey: KEY }), input: {}, seconds: 600 },
+    { name: "scrapeHtml without a timeout", tool: scrapeHtmlTool({ apiKey: KEY }), input: { url: PAGE_URL }, seconds: 330 },
+    {
+      name: "scrapeMarkdown with timeout 60",
+      tool: scrapeMarkdownTool({ apiKey: KEY }),
+      input: { url: PAGE_URL, timeout: 60 },
+      seconds: 90,
+    },
+    {
+      name: "getScreenshot with timeout 330",
+      tool: getScreenshotTool({ apiKey: KEY }),
+      input: { url: PAGE_URL, timeout: 330 },
+      seconds: 360,
+    },
+    { name: "scrapeJson with timeout 1", tool: scrapeJsonTool({ apiKey: KEY }), input: { url: JSON_URL, timeout: 1 }, seconds: 31 },
+    { name: "scrapeBrand", tool: scrapeBrandTool({ apiKey: KEY }), input: { url: BRAND_URL }, seconds: 120 },
+    { name: "webSearch", tool: webSearchTool({ apiKey: KEY }), input: { query: "mrscraper" }, seconds: 120 },
+  ])("$name gives up after $seconds seconds", async ({ tool, input, seconds }) => {
+    vi.useFakeTimers();
+    const fetchMock: FetchMock = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal!.addEventListener("abort", () => reject(new DOMException("This operation was aborted", "AbortError")));
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const outcome = run(tool as Tool, input).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(seconds * 1000 - 1);
+    expect(fetchMock.mock.calls[0]![1].signal!.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const error = await outcome;
+    expect(error).toBeInstanceOf(MrScraperError);
+    expect((error as MrScraperError).message).toBe(`Request timed out after ${seconds} seconds`);
   });
 });
 
@@ -370,12 +554,28 @@ describe("authentication and errors", () => {
     const error = await run(webSearchTool({ apiKey: KEY }), { query: "mrscraper" }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(MrScraperError);
     expect((error as MrScraperError).status).toBe(400);
-    expect((error as MrScraperError).message).toContain("Invalid request");
-    expect((error as MrScraperError).message).not.toContain(KEY);
+    expect((error as MrScraperError).message).toBe('{"success":false,"message":"Invalid request ([REDACTED])"}');
   });
 
   it("reports an invalid key as a 401 MrScraperError", async () => {
     stubFetch(() => Response.json({ message: "Unauthorized access" }, { status: 401 }));
-    await expect(run(statusTool({ apiKey: "atk_wrongwrongwrong" }), {})).rejects.toMatchObject({ status: 401 });
+    await expect(run(statusTool({ apiKey: "atk_wrongwrongwrong" }), {})).rejects.toMatchObject({
+      name: "MrScraperError",
+      status: 401,
+      message: "Unauthorized or invalid API key. Get your key at https://app.mrscraper.com/api-tokens.",
+    });
+  });
+
+  it("throws MrScraperError without the key for network failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError(`fetch failed (${KEY})`);
+      }),
+    );
+    const error = await run(scrapeBrandTool({ apiKey: KEY }), { url: BRAND_URL }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(MrScraperError);
+    expect((error as MrScraperError).message).toBe("fetch failed ([REDACTED])");
+    expect((error as MrScraperError).status).toBeUndefined();
   });
 });

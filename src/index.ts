@@ -1,3 +1,5 @@
+import { tool, type Tool } from "ai";
+
 import {
   MrScraperError,
   getScreenshot,
@@ -10,9 +12,7 @@ import {
   type MrScraperResponse,
   type PageData,
   type WebSearchResponse,
-} from "@mrscraper/sdk";
-import { tool, type Tool } from "ai";
-
+} from "./api.js";
 import {
   getScreenshotInput,
   scrapeBrandInput,
@@ -31,7 +31,8 @@ import {
 } from "./inputs.js";
 import { screenshotModelOutput } from "./model-output.js";
 
-export type { MrScraperResponse, PageData, WebSearchResponse, WebSearchResult } from "@mrscraper/sdk";
+export { MrScraperError } from "./api.js";
+export type { MrScraperResponse, PageData, WebSearchResponse, WebSearchResult } from "./api.js";
 export type {
   GetScreenshotInput,
   ScrapeBrandInput,
@@ -67,43 +68,47 @@ export function statusTool(options: MrScraperToolOptions = {}): Tool<StatusInput
     description:
       "Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.",
     inputSchema: statusInput,
-    execute: async () => status({ token: apiKey(options) }),
-  });
-}
-
-/** Retrieve the raw HTML of a page. Browser rendering is optional. */
-export function scrapeHtmlTool(options: MrScraperToolOptions = {}): Tool<ScrapeHtmlInput, MrScraperResponse<PageData>> {
-  return tool({
-    description: "Retrieve the raw HTML of a page. Browser rendering is optional.",
-    inputSchema: scrapeHtmlInput,
-    execute: async ({ url, ...input }) => scrapeHtml(url, { ...input, token: apiKey(options) }),
-  });
-}
-
-/** Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON. */
-export function scrapeMarkdownTool(
-  options: MrScraperToolOptions = {},
-): Tool<ScrapeMarkdownInput, MrScraperResponse<PageData>> {
-  return tool({
-    description:
-      "Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.",
-    inputSchema: scrapeMarkdownInput,
-    execute: async ({ url, ...input }) => scrapeMarkdown(url, { ...input, token: apiKey(options) }),
+    execute: async () => status(apiKey(options)),
   });
 }
 
 /**
- * Capture a base64 screenshot of the full page or top viewport. Browser
- * rendering is always enabled. The model receives the screenshot as an image.
+ * Retrieve the raw HTML of a page. Browser rendering and a screenshot are
+ * optional. A requested screenshot reaches the model as an image.
+ */
+export function scrapeHtmlTool(options: MrScraperToolOptions = {}): Tool<ScrapeHtmlInput, MrScraperResponse<PageData>> {
+  return tool({
+    description: "Retrieve the raw HTML of a page. Browser rendering and a screenshot are optional.",
+    inputSchema: scrapeHtmlInput,
+    execute: async (input) => scrapeHtml(input, apiKey(options)),
+    toModelOutput: screenshotModelOutput,
+  });
+}
+
+/** Retrieve a page as Markdown. Browser rendering is optional. */
+export function scrapeMarkdownTool(
+  options: MrScraperToolOptions = {},
+): Tool<ScrapeMarkdownInput, MrScraperResponse<PageData>> {
+  return tool({
+    description: "Retrieve a page as Markdown. Browser rendering is optional.",
+    inputSchema: scrapeMarkdownInput,
+    execute: async (input) => scrapeMarkdown(input, apiKey(options)),
+  });
+}
+
+/**
+ * Capture a base64 PNG screenshot of the full page, the top viewport, or a
+ * custom viewport size. Browser rendering is always enabled. The model
+ * receives the screenshot as an image.
  */
 export function getScreenshotTool(
   options: MrScraperToolOptions = {},
 ): Tool<GetScreenshotInput, MrScraperResponse<PageData>> {
   return tool({
     description:
-      "Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.",
+      "Capture a base64 PNG screenshot of the full page, the top viewport, or a custom viewport size. Browser rendering is always enabled.",
     inputSchema: getScreenshotInput,
-    execute: async ({ url, ...input }) => getScreenshot(url, { ...input, token: apiKey(options) }),
+    execute: async (input) => getScreenshot(input, apiKey(options)),
     toModelOutput: screenshotModelOutput,
   });
 }
@@ -113,7 +118,7 @@ export function scrapeBrandTool(options: MrScraperToolOptions = {}): Tool<Scrape
   return tool({
     description: "Extract a website's colors, typography, logos, and social links as JSON.",
     inputSchema: scrapeBrandInput,
-    execute: async ({ url }) => scrapeBrand(url, { token: apiKey(options) }),
+    execute: async (input) => scrapeBrand(input, apiKey(options)),
   });
 }
 
@@ -127,7 +132,7 @@ export function scrapeJsonTool(options: MrScraperToolOptions = {}): Tool<ScrapeJ
     description:
       "Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.",
     inputSchema: scrapeJsonInput,
-    execute: async ({ url, ...input }) => scrapeJson(url, { ...input, token: apiKey(options) }),
+    execute: async (input) => scrapeJson(input, apiKey(options)),
     toModelOutput: screenshotModelOutput,
   });
 }
@@ -139,11 +144,11 @@ export function webSearchTool(
   return tool({
     description: "Search the web and return ranked results with titles, URLs, descriptions, and sources.",
     inputSchema: webSearchInput,
-    execute: async ({ query, ...input }) => webSearch(query, { ...input, token: apiKey(options) }),
+    execute: async (input) => webSearch(input, apiKey(options)),
   });
 }
 
-/** All seven MrScraper tools, keyed by the names the Node SDK and MCP server use. */
+/** All seven MrScraper tools, keyed by the names the MrScraper MCP server uses. */
 export function mrscraperTools(options: MrScraperToolOptions = {}): {
   status: Tool<StatusInput, MrScraperResponse>;
   scrapeHtml: Tool<ScrapeHtmlInput, MrScraperResponse<PageData>>;

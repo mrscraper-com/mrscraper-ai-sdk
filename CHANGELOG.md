@@ -3,6 +3,39 @@
 All notable changes to `@mrscraper/ai-sdk` are documented here. The project
 follows [Semantic Versioning](https://semver.org/).
 
+## 0.4.0 - 2026-11-24
+
+- Inputs follow MrScraper's API reference and integration parameter spec.
+  Tool names are unchanged; the `scrapeHtml`, `scrapeMarkdown`, and
+  `getScreenshot` descriptions and every page input description use the new
+  text.
+- Removed inputs: `super`, `proxy`, `proxyCountry`, `waitUntil`,
+  `returnCookie`, and `saveResult` on the page tools, `html` on
+  `scrapeMarkdown`, and `html` and `markdown` on `getScreenshot`. Tool calls
+  that set them are rejected.
+- Inputs are sent only when the model sets them, so the API's defaults apply:
+  `timeout`, `geoCode`, `browserRendering`, `warmStart`, `blockResources`,
+  `waitForSelector`, `maxRetries`, `prompt`, `country`, and `numResults`. 0.3
+  always sent `timeout=300`, `geoCode=us`, `proxyCountry=us`, `super=false`,
+  `waitUntil=domcontentloaded`, `browserRendering=false`, and more; the API
+  now switches to a browser on its own when `browserRendering` is left out
+  and a page blocks the first attempt.
+- The four page tools always send `saveResult=true` and send `maxAge=0` unless
+  `maxAge` (new, 0 to 604800000 ms) is set. `timeout` accepts 1 to 330.
+- `scrapeHtml` takes `screenshot` (`full`, `top`, or `<width>x<height>` with
+  an optional `-<zoom>`) and sends it to the model as an image part.
+  `getScreenshot` accepts the same custom sizes, and its request no longer asks
+  for HTML. `scrapeMarkdown` no longer asks for HTML. `scrapeJson` takes
+  `waitForSelector`, `warmStart`, and `blockResources`, and its `html` input
+  defaults to true.
+- `webSearch` sends `country` and `numResults` only when set.
+- The tools call the MrScraper API with `fetch` instead of `@mrscraper/sdk` 6,
+  which always sent the removed and defaulted values; the dependency is
+  removed. `MrScraperError`, `MrScraperResponse`, `PageData`,
+  `WebSearchResponse`, and `WebSearchResult` are now exported by this package.
+  Credential response headers are removed from every result (0.3: `status`
+  only), and a timeout reports `Request timed out after N seconds`.
+
 ## 0.3.0 - 2026-11-20
 
 - The tools follow the MrScraper Integrations Standard, which MrScraper MCP

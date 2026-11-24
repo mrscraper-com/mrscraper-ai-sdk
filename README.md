@@ -7,18 +7,18 @@ status.
 
 ## Overview
 
-The seven MrScraper services as AI SDK tools. Tool names, descriptions, input
-fields, and defaults follow the MrScraper Integrations Standard, shared by the
-MrScraper CLI, SDKs, and [MCP server](https://github.com/mrscraper-com/mrscraper-mcp).
-Requests go through [`@mrscraper/sdk`](https://www.npmjs.com/package/@mrscraper/sdk) 6.
-See the [API Reference](https://docs.mrscraper.com/docs/api/overview).
+The seven MrScraper services as AI SDK tools, with the same names and
+descriptions as the [MrScraper MCP server](https://github.com/mrscraper-com/mrscraper-mcp).
+Inputs follow the [API Reference](https://docs.mrscraper.com/docs/api/overview).
+The tools call the MrScraper API directly with `fetch`; besides the `ai` and
+`zod` peer dependencies, the package has no dependencies.
 
 | Tool | Factory | Description |
 | --- | --- | --- |
 | `status` | `statusTool()` | Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields. |
-| `scrapeHtml` | `scrapeHtmlTool()` | Retrieve the raw HTML of a page. Browser rendering is optional. |
-| `scrapeMarkdown` | `scrapeMarkdownTool()` | Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON. |
-| `getScreenshot` | `getScreenshotTool()` | Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled. |
+| `scrapeHtml` | `scrapeHtmlTool()` | Retrieve the raw HTML of a page. Browser rendering and a screenshot are optional. |
+| `scrapeMarkdown` | `scrapeMarkdownTool()` | Retrieve a page as Markdown. Browser rendering is optional. |
+| `getScreenshot` | `getScreenshotTool()` | Capture a base64 PNG screenshot of the full page, the top viewport, or a custom viewport size. Browser rendering is always enabled. |
 | `scrapeBrand` | `scrapeBrandTool()` | Extract a website's colors, typography, logos, and social links as JSON. |
 | `scrapeJson` | `scrapeJsonTool()` | Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output. |
 | `webSearch` | `webSearchTool()` | Search the web and return ranked results with titles, URLs, descriptions, and sources. |
@@ -71,40 +71,28 @@ const tools = {
 Examples use `example.com` as the sample target. Replace it for your use case.
 Live scraping and search calls consume account quota.
 
-## Shared parameters
+## Page controls
 
-### Page controls
+`scrapeHtml`, `scrapeMarkdown`, `getScreenshot`, and `scrapeJson` load a page
+and share these inputs. An input without a default is sent only when the model
+sets it, so the API's own default applies otherwise. Every request from these
+four tools also sends `saveResult=true`, so its result appears in the Result
+tab of your MrScraper dashboard.
 
-`scrapeHtml`, `scrapeMarkdown`, `getScreenshot`, and `scrapeJson` share these
-inputs. Page defaults are 300 seconds, US geolocation/proxy country,
-real-device routing off, and dashboard saving off. Omitted retry limits mean
-no limit.
+| Parameter | Type | Default | Tools | Description |
+| --- | --- | --- | --- | --- |
+| `url` | string | Required | all four | URL of the page to scrape. Must include the protocol (https://). |
+| `browserRendering` | boolean | Not sent | all but `getScreenshot` | Controls whether the page is loaded in a browser. Leave it out to load the page without a browser first and switch to a browser automatically if the request is blocked. Set true to always load the page in a browser, which JavaScript-heavy sites, SPAs, and pages that load content dynamically need. Set false to never use a browser. |
+| `timeout` | integer, 1 to 330 | Not sent | all four | Maximum seconds to wait for the scrape before the request times out, from 1 to 330. Increase for slow or complex pages. Defaults to 300. |
+| `warmStart` | boolean | Not sent | all but `getScreenshot` | Opens the site's home page first to warm the session before loading the target URL. Useful for sites that expect a normal browsing session before deeper pages. |
+| `blockResources` | boolean | Not sent | all but `getScreenshot` | Blocks images, fonts, and stylesheets from loading. Speeds up scraping and reduces bandwidth usage. |
+| `waitForSelector` | string, 1 to 500 characters | Not sent | all four | Waits until a specific CSS selector or text appears on the page before returning it, such as #results. Up to 500 characters. Useful for content that loads asynchronously after the initial page load. |
+| `geoCode` | string, two letters | Not sent | all four | Two-letter country code to load the page from, such as us or gb. Defaults to the United States. |
+| `maxAge` | integer, 0 to 604800000 | `0` | all four | Serves a cached result of the same request when it is newer than this age, in milliseconds, such as 86400000 for 1 day. Up to 604800000 (7 days). 0, the default, always scrapes fresh. A cached result costs the same tokens as the original scrape. |
+| `maxRetries` | integer, 0 or more | Not sent | all four | Maximum number of retries for the request. Omit for no limit. |
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `url` | string | Required | Absolute HTTP or HTTPS URL of the page to process. |
-| `timeout` | number (integer) | `300` | Page load timeout in seconds, from 1 to 300. The HTTP request allows 30 additional seconds. |
-| `geoCode` | string | `"us"` | Two-letter country code to load the page from, sent in lowercase. |
-| `proxyCountry` | string | `"us"` | Two-letter country code of the proxy server, sent in lowercase. |
-| `super` | boolean | `false` | Whether to route the request through real devices. |
-| `waitUntil` | string: `domcontentloaded`, `load`, `networkidle0`, `networkidle2` | `"domcontentloaded"` | Navigation completion event to wait for: domcontentloaded, load, networkidle0, or networkidle2. |
-| `proxy` | string | Omitted | Custom proxy URL used to load the page. |
-| `maxRetries` | number (integer) | Omitted | Maximum number of retries, as a nonnegative integer. Omit this parameter for no limit. |
-| `saveResult` | boolean | `false` | Whether to save the result to the dashboard Result tab. |
-
-### Loading controls
-
-`scrapeHtml`, `scrapeMarkdown`, and `getScreenshot` also accept these inputs.
-`scrapeJson` does not.
-
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `blockResources` | boolean | `false` | Whether to block images, fonts, and stylesheets while loading the page. |
-| `waitForSelector` | string | Omitted | Wait for the page to contain the specified CSS selector before returning the result. |
-| `returnCookie` | boolean | `false` | Whether to include browser session cookies in the response. |
-
-Browser rendering is optional for HTML, Markdown, and JSON; screenshots always
-enable it. Markdown with HTML also enables browser rendering.
+Country codes are sent in lowercase. The HTTP request allows the page timeout
+(300 seconds when `timeout` is not set) plus 30 seconds.
 
 ## Service reference
 
@@ -114,9 +102,9 @@ Tool `status`, factory `statusTool()`.
 
 Return the raw account status API response without summarizing, redacting body fields, or adding calculated fields.
 
-This service takes no service parameters. Authentication is configured
-separately. The HTTP deadline is fixed at 600 seconds. It is not a service
-parameter.
+This service takes no inputs. The request is
+`GET https://api.app.mrscraper.com/api/v1/subscription-accounts`, with a fixed
+HTTP deadline of 600 seconds.
 
 Response: The API body contains message and data. Account details remain
 nested in data, including subscriptionItem and scraperAllowance. The response
@@ -127,84 +115,94 @@ headers are removed.
 
 Tool `scrapeHtml`, factory `scrapeHtmlTool()`.
 
-Retrieve the raw HTML of a page. Browser rendering is optional.
+Retrieve the raw HTML of a page. Browser rendering and a screenshot are optional.
 
-Inputs: [page controls](#page-controls), [loading controls](#loading-controls), and:
+Inputs, in order: `url`, `browserRendering`, `timeout`, `warmStart`,
+`blockResources`, `waitForSelector`, `geoCode`, `maxAge`, `maxRetries` (see
+[Page controls](#page-controls)), and:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `browserRendering` | boolean | `false` | Whether to render the page in a browser before returning the result. |
-| `warmStart` | boolean | `false` | Whether to enable warm start for more reliable scraping, at the cost of additional latency. |
+| `screenshot` | string: `full`, `top`, or `<width>x<height>[-<zoom>]` | Not sent | Also captures a screenshot of the rendered page as a base64-encoded PNG: full captures the entire scroll height, top captures the first viewport, and <width>x<height> sets the viewport size in pixels with an optional -<zoom> percent, such as 1280x800 or 1920x1080-75. Width and height range from 100 to 3840, zoom from 25 to 300. Setting it forces browser rendering. Leave it out for no screenshot. |
 
-Example input:
+Always sent: `html=true`, `markdown=false`, `saveResult=true`.
+
+Example input and the request it sends:
 
 ```json
 {
   "url": "https://example.com",
   "browserRendering": true,
-  "warmStart": true,
-  "waitForSelector": "body",
-  "timeout": 120
+  "waitForSelector": "#results",
+  "screenshot": "1280x800"
 }
 ```
 
-Response: The default response body is HTML text. Additional controls can
-cause the API to return JSON; the returned structure is preserved.
+```text
+GET https://api.mrscraper.com/?url=https%3A%2F%2Fexample.com&browserRendering=true&waitForSelector=%23results&maxAge=0&screenshot=1280x800&html=true&markdown=false&saveResult=true
+```
+
+Response: HTML text. With `screenshot` set, JSON with `html` and `screenshot`.
 
 ### Scrape Markdown
 
 Tool `scrapeMarkdown`, factory `scrapeMarkdownTool()`.
 
-Retrieve a page as Markdown. Including HTML also enables browser rendering and returns both outputs as JSON.
+Retrieve a page as Markdown. Browser rendering is optional.
 
-Inputs: [page controls](#page-controls), [loading controls](#loading-controls), and:
+Inputs, in order: `url`, `browserRendering`, `timeout`, `geoCode`,
+`warmStart`, `blockResources`, `waitForSelector`, `maxAge`, `maxRetries` (see
+[Page controls](#page-controls)).
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `browserRendering` | boolean | `false` | Whether to render the page in a browser before returning the result. |
-| `warmStart` | boolean | `false` | Whether to enable warm start for more reliable scraping, at the cost of additional latency. |
-| `html` | boolean | `false` | Whether to include the page HTML in the response. |
+Always sent: `markdown=true`, `html=false`, `screenshot=false`,
+`saveResult=true`.
 
-Example input:
+Example input and the request it sends:
 
 ```json
 {
   "url": "https://example.com",
-  "html": true,
-  "warmStart": true
+  "geoCode": "gb",
+  "maxAge": 86400000
 }
 ```
 
-Response: The default response body is Markdown text. Enabling HTML returns
-JSON containing both HTML and Markdown.
+```text
+GET https://api.mrscraper.com/?url=https%3A%2F%2Fexample.com&geoCode=gb&maxAge=86400000&markdown=true&html=false&screenshot=false&saveResult=true
+```
+
+Response: Markdown text.
 
 ### Get screenshot
 
 Tool `getScreenshot`, factory `getScreenshotTool()`.
 
-Capture a base64 screenshot of the full page or top viewport. Browser rendering is always enabled.
+Capture a base64 PNG screenshot of the full page, the top viewport, or a custom viewport size. Browser rendering is always enabled.
 
-Inputs: [page controls](#page-controls), [loading controls](#loading-controls), and:
+Inputs, in order: `url`, `screenshot`, `timeout`, `geoCode`,
+`waitForSelector`, `maxAge`, `maxRetries` (see [Page controls](#page-controls)).
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `screenshot` | string: `full`, `top` | `"full"` | Screenshot area to capture: full for the entire page or top for the top viewport. |
-| `html` | boolean | `true` | Whether to include the page HTML in the response. |
-| `markdown` | boolean | `false` | Whether to include the page Markdown in the response. |
+| `screenshot` | string: `full`, `top`, or `<width>x<height>[-<zoom>]` | `"full"` | Screenshot area: full captures the entire scroll height (the default), top captures the first viewport, and <width>x<height> sets the viewport size in pixels with an optional -<zoom> percent, such as 1280x800 or 1920x1080-75. Width and height range from 100 to 3840, zoom from 25 to 300. The image is a base64-encoded PNG. |
 
-Example input:
+Always sent: `browserRendering=true`, `html=false`, `markdown=false`,
+`saveResult=true`.
+
+Example input and the request it sends:
 
 ```json
 {
   "url": "https://example.com",
-  "screenshot": "top",
-  "html": false,
-  "markdown": true
+  "screenshot": "1920x1080-75"
 }
 ```
 
-Response: The response body contains a base64 screenshot and requested page
-outputs. The API can still include HTML when HTML output is disabled.
+```text
+GET https://api.mrscraper.com/?url=https%3A%2F%2Fexample.com&screenshot=1920x1080-75&maxAge=0&browserRendering=true&html=false&markdown=false&saveResult=true
+```
+
+Response: JSON with the base64 PNG in `screenshot`.
 
 ### Scrape brand
 
@@ -214,19 +212,11 @@ Extract a website's colors, typography, logos, and social links as JSON.
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `url` | string | Required | Absolute HTTP or HTTPS URL of the page to process. |
+| `url` | string | Required | URL of the page to scrape. Must include the protocol (https://). |
 
-The HTTP deadline is fixed at 120 seconds. It is not a service parameter. The
-request uses `action=brand-scraping` and `bundle=none`; page controls are not
-accepted.
-
-Example input:
-
-```json
-{
-  "url": "https://example.com"
-}
-```
+The request is
+`GET https://api.mrscraper.com/?action=brand-scraping&url=…&bundle=none`, with
+a fixed HTTP deadline of 120 seconds. Page controls are not accepted.
 
 Response: The API body contains message and a data object with job_id,
 status, url, final_url, brand, and error. Brand details are available at
@@ -238,33 +228,36 @@ Tool `scrapeJson`, factory `scrapeJsonTool()`.
 
 Extract structured JSON from a page using a natural-language prompt. Append Json Schema: and a JSON schema to shape the output.
 
-Inputs: [page controls](#page-controls) and:
+Inputs, in order: `url`, `prompt`, `html`, `screenshot`, `browserRendering`,
+`waitForSelector`, `warmStart`, `blockResources`, `timeout`, `geoCode`,
+`maxAge`, `maxRetries` (see [Page controls](#page-controls)), where:
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `prompt` | string | `"Extract all data as complete as possible."` | Instructions describing the data to extract. Append Json Schema: and a JSON schema to shape the output. |
-| `browserRendering` | boolean | `false` | Whether to render the page in a browser before returning the result. |
-| `html` | boolean | `false` | Whether to include the page HTML in the response. |
-| `screenshot` | boolean | `false` | Whether to include a base64 screenshot in the response. |
+| `prompt` | string | Not sent | Description of the data shape you want back, for example fields like title, price, and rating. The prompt only parses the scraped content; it cannot instruct the scraper itself. To shape the output with a JSON schema, append it to the prompt as a Json Schema: section. Defaults to "Extract all data as complete as possible." |
+| `html` | boolean | `true` | Returns the raw HTML of the scraped page in the response. On by default; set false to leave it out. |
+| `screenshot` | boolean | `false` | Captures a screenshot of the rendered page as a base64-encoded image. Useful for verifying what the scraper actually saw. Off by default. |
 
-The request uses `agent=general` and GET. If the encoded URL exceeds 8,000
-characters, it switches to POST with `url`, `prompt`, and `agent` in the body;
-page controls remain in the query.
+Always sent: `agent=general`, `saveResult=true`. The request is a GET. If its
+URL would exceed 8,000 characters, it switches to POST with `url`, `prompt`,
+and `agent` in a JSON body; the other values stay in the query.
 
-Example input:
+Example input and the request it sends:
 
 ```json
 {
   "url": "https://example.com",
-  "prompt": "Extract the first 2 items with title and price. Json Schema: {\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"title\":{\"type\":\"string\"},\"price\":{\"type\":\"string\"}},\"required\":[\"title\",\"price\"]}}",
-  "browserRendering": true
+  "prompt": "Extract the first 2 items with title and price.",
+  "html": false
 }
 ```
 
+```text
+GET https://api.mrscraper.com/?url=https%3A%2F%2Fexample.com&prompt=Extract+the+first+2+items+with+title+and+price.&html=false&screenshot=false&maxAge=0&saveResult=true&agent=general
+```
+
 Response: Extraction results are in the API body's data field and follow the
-requested schema. Response metadata includes thread_id, token_usage, status,
-error, runtime, and cookies. html, markdown, and screenshot can be empty
-strings when not requested.
+requested schema, plus `html` by default and `screenshot` when requested.
 
 ### Web search
 
@@ -274,20 +267,24 @@ Search the web and return ranked results with titles, URLs, descriptions, and so
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `query` | string | Required | Search query text, trimmed before sending, containing 1 to 1000 characters. |
-| `country` | string | `"us"` | Two-letter country code to search from, sent in lowercase. |
-| `numResults` | number (integer) | `10` | Number of search results to request, as an integer from 10 to 100. Fewer results may be returned. |
+| `query` | string, trimmed, 1 to 1000 characters | Required | The search query, from 1 to 1000 characters. |
+| `country` | string, two letters | Not sent | Two-letter country code to run the search from. Defaults to the United States. |
+| `numResults` | integer, 10 to 100 | Not sent | How many results to return, from 10 to 100. The search may return fewer. Defaults to 10. |
 
-The HTTP deadline is fixed at 120 seconds. It is not a service parameter.
+Always sent: `action=websearch`. The HTTP deadline is fixed at 120 seconds.
 
-Example input:
+Example input and the request it sends:
 
 ```json
 {
   "query": "site:example.com documentation",
-  "country": "id",
+  "country": "ID",
   "numResults": 20
 }
+```
+
+```text
+GET https://api.mrscraper.com/?action=websearch&query=site%3Aexample.com+documentation&country=id&numResults=20
 ```
 
 Response: The API body contains success, message, a data array, and
@@ -295,10 +292,10 @@ tokenUsage. Each result includes rank, title, url, description, and source.
 
 ## Response format
 
-Each tool returns the `@mrscraper/sdk` response envelope (`MrScraperResponse`)
-containing `status_code`, `data`, and `headers`. The `data` field contains the
-API response body; its field names are not converted. Status preserves the
-complete body without adding summary fields.
+Each tool returns the response envelope (`MrScraperResponse`) containing
+`status_code`, `data`, and `headers`. The `data` field contains the API
+response body; its field names are not converted. Credential headers are
+removed. Status preserves the complete body without adding summary fields.
 
 ```json
 {
@@ -311,35 +308,37 @@ complete body without adding summary fields.
 ```
 
 The AI SDK sends tool results to the model as JSON. `getScreenshot`, and
-`scrapeJson` when a screenshot is requested, send the base64 screenshot as an
-image part instead, so a screenshot costs image tokens rather than hundreds of
-thousands of text tokens. Your code still receives the base64 string in
-`data.screenshot`.
+`scrapeHtml` or `scrapeJson` when a screenshot is requested, send the base64
+screenshot as an image part instead, so a screenshot costs image tokens rather
+than hundreds of thousands of text tokens. Your code still receives the base64
+string in `data.screenshot`.
 
 ## Error handling
 
-Authentication, HTTP, network, and timeout failures throw `MrScraperError`
-from `@mrscraper/sdk`, with the API key redacted. Its `status` property is the
-HTTP status when available. The AI SDK reports a thrown error to the model as
-a tool error. Inputs that do not match a tool's schema, including fields the
-tool does not define, are rejected before any request.
+Authentication, HTTP, network, and timeout failures throw `MrScraperError`,
+exported by this package, with the API key redacted. Its `status` property is
+the HTTP status when available. The AI SDK reports a thrown error to the model
+as a tool error. Inputs that do not match a tool's schema, including fields
+the tool does not define, are rejected before any request.
 
 ## Integration features
 
 ### Configuration
 
 `mrscraperTools()` and each factory accept `{ apiKey }`. TypeScript exports
-include `MrScraperToolOptions`, an input type per tool (`StatusInput`,
-`ScrapeHtmlInput`, `ScrapeMarkdownInput`, `GetScreenshotInput`,
-`ScrapeBrandInput`, `ScrapeJsonInput`, `WebSearchInput`), and the SDK's
-`MrScraperResponse`, `PageData`, `WebSearchResponse`, and `WebSearchResult`.
+include `MrScraperToolOptions`, `MrScraperError`, an input type per tool
+(`StatusInput`, `ScrapeHtmlInput`, `ScrapeMarkdownInput`, `GetScreenshotInput`,
+`ScrapeBrandInput`, `ScrapeJsonInput`, `WebSearchInput`), and the response
+types `MrScraperResponse`, `PageData`, `WebSearchResponse`, and
+`WebSearchResult`.
 
 ### Data and permissions
 
 The tools send target URLs, search queries, and request options to MrScraper's
-API. Use them only for public or otherwise authorized content, and follow the
-target site's terms. See the [Privacy Policy](https://mrscraper.com/privacy-policy)
-and [Acceptable Use Policy](https://mrscraper.com/acceptable-use-policy).
+API. Page results are saved to your MrScraper dashboard. Use the tools only for
+public or otherwise authorized content, and follow the target site's terms.
+See the [Privacy Policy](https://mrscraper.com/privacy-policy) and
+[Acceptable Use Policy](https://mrscraper.com/acceptable-use-policy).
 
 ### Links
 
@@ -349,25 +348,27 @@ and [Acceptable Use Policy](https://mrscraper.com/acceptable-use-policy).
 
 ## Migration
 
-Upgrading from 0.2:
+Upgrading from 0.3:
 
-- `scraperAPI` (`scraperApiTool()`) is removed, and with it the `formats`
-  input. Use `scrapeMarkdown` for Markdown (with `html: true` for both),
-  `scrapeHtml` for raw HTML, or `getScreenshot` for a screenshot.
-- Browser rendering no longer switches on automatically. It is off unless
-  `browserRendering` is true; `getScreenshot` always renders. The page timeout
-  defaults to 300 seconds (was 120).
-- `webSearch`: rename `region` to `country`. `query` is search text; a search
-  results URL is no longer read for its `q` parameter.
-- `accountStatusTool()` is now `statusTool()`. It returns the raw account
-  status response, with account details at `data.data`, instead of summary
-  fields such as `token_remaining`.
-- Every tool returns `{ status_code, data, headers }` with the API body in
-  `data`. Search results are in `data.data`, each with `url` (was `link`).
-  The `PageResult`, `PageFormat`, `SearchResult`, `SearchResultItem`,
-  `ScraperApiInput`, and `AccountSummary` types are removed.
-- `mrscraperTools()` adds `scrapeBrand` and `scrapeJson`. Pick individual
-  tools if the model should not use them.
+- Removed inputs: `super`, `proxy`, `proxyCountry`, `waitUntil`,
+  `returnCookie`, and `saveResult` on the page tools, `html` on
+  `scrapeMarkdown`, and `html` and `markdown` on `getScreenshot`. A tool call
+  that still sets one is rejected.
+- Inputs without a default are no longer filled in: `timeout`, `geoCode`,
+  `browserRendering`, `warmStart`, `blockResources`, `prompt`, `country`, and
+  `numResults` are sent only when set. Leaving `browserRendering` out lets the
+  API switch to a browser when a page blocks the first attempt.
+- Every page request sends `saveResult=true` and `maxAge=0` unless `maxAge` is
+  set. `timeout` now accepts up to 330 seconds.
+- `scrapeHtml` takes `screenshot`; `getScreenshot` also takes custom viewport
+  sizes such as `1280x800`; `scrapeJson` takes `waitForSelector`,
+  `warmStart`, and `blockResources`, and includes the page HTML by default.
+- `scrapeMarkdown` always returns Markdown text and `getScreenshot` returns only
+  the screenshot.
+- The package no longer depends on `@mrscraper/sdk`. Import `MrScraperError`
+  and the response types from `@mrscraper/ai-sdk`.
+
+Upgrading from 0.2: see the 0.3.0 entry in [CHANGELOG.md](CHANGELOG.md).
 
 ## Development and testing
 
