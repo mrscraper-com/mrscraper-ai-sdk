@@ -346,30 +346,6 @@ See the [Privacy Policy](https://mrscraper.com/privacy-policy) and
 - MrScraper MCP server (for MCP clients): https://github.com/mrscraper-com/mrscraper-mcp
 - Support: support@mrscraper.com
 
-## Migration
-
-Upgrading from 0.3:
-
-- Removed inputs: `super`, `proxy`, `proxyCountry`, `waitUntil`,
-  `returnCookie`, and `saveResult` on the page tools, `html` on
-  `scrapeMarkdown`, and `html` and `markdown` on `getScreenshot`. A tool call
-  that still sets one is rejected.
-- Inputs without a default are no longer filled in: `timeout`, `geoCode`,
-  `browserRendering`, `warmStart`, `blockResources`, `prompt`, `country`, and
-  `numResults` are sent only when set. Leaving `browserRendering` out lets the
-  API switch to a browser when a page blocks the first attempt.
-- Every page request sends `saveResult=true` and `maxAge=0` unless `maxAge` is
-  set. `timeout` now accepts up to 330 seconds.
-- `scrapeHtml` takes `screenshot`; `getScreenshot` also takes custom viewport
-  sizes such as `1280x800`; `scrapeJson` takes `waitForSelector`,
-  `warmStart`, and `blockResources`, and includes the page HTML by default.
-- `scrapeMarkdown` always returns Markdown text and `getScreenshot` returns only
-  the screenshot.
-- The package no longer depends on `@mrscraper/sdk`. Import `MrScraperError`
-  and the response types from `@mrscraper/ai-sdk`.
-
-Upgrading from 0.2: see the 0.3.0 entry in [CHANGELOG.md](CHANGELOG.md).
-
 ## Development and testing
 
 The automated suite stubs `fetch` and makes no API calls.
